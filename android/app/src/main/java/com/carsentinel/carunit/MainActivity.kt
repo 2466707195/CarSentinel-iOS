@@ -100,7 +100,8 @@ fun RootScaffold() {
                 onToggleService = { on ->
                     if (on) ServiceController.start(context)
                     else ServiceController.stop(context)
-                }
+                },
+                onRetryCameras = { ServiceController.retryCameras(context) }
             )
 
             Screen.Log -> LogScreen(logs = state.logs)

@@ -3,7 +3,7 @@ package com.carsentinel.carunit.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.RoundedRectangleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,7 +40,6 @@ import com.carsentinel.carunit.net.Protocol
 import com.carsentinel.carunit.service.ServiceController
 import com.carsentinel.carunit.ui.common.AppTopBar
 import com.carsentinel.carunit.ui.common.AuroraBackdrop
-import com.carsentinel.carunit.ui.common.GradientButton
 import com.carsentinel.carunit.ui.common.QuietButton
 import com.carsentinel.carunit.ui.common.SectionCard
 import com.carsentinel.carunit.ui.common.StatusPill
@@ -53,6 +53,7 @@ import com.carsentinel.carunit.ui.theme.AppTheme
 fun StatusScreen(
     state: ServiceController.UiState,
     onToggleService: (Boolean) -> Unit,
+    onRetryCameras: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val extra = AppTheme.colors
@@ -93,10 +94,46 @@ fun StatusScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(12.dp))
-                    GradientButton(
-                        text = if (state.running) "停止推流" else "启动推流",
-                        onClick = { onToggleService(!state.running) }
-                    )
+                    // 原来是一整条全宽渐变蓝按钮，在宽屏车机上像一块板，很笨重。
+                    // 改成「状态文字 + 右侧动作按钮」的行式布局，重量感立刻下来。
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (state.running) "正在推流" else "推流已停止",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                if (state.running) "手机可在同一局域网发现本机"
+                                else "启动后开始采集并推流",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        // 次按钮样式：浅底 + 品牌色文字，不再是一条实心蓝板
+                        Box(
+                            Modifier
+                                .clip(RoundedRectangleShape(cornerRadius = 14.dp))
+                                .background(
+                                    if (state.running) extra.warningContainer
+                                    else extra.brandContainer
+                                )
+                                .clickable { onToggleService(!state.running) }
+                                .padding(horizontal = 20.dp, vertical = 12.dp)
+                        ) {
+                            Text(
+                                if (state.running) "停止推流" else "启动推流",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (state.running) extra.warning
+                                else extra.onBrandContainer,
+                                maxLines = 1
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(14.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -163,11 +200,73 @@ fun StatusScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(8.dp))
-                        Text(
-                            if (state.running) "尚未打开任何摄像头，正在重试…" else "服务未启动",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+
+                        // 0 路时分三种情况说清楚，别再显示那句误导的「正在重试…」
+                        when {
+                            !state.hasCameraPermission -> {
+                                Text(
+                                    "没有相机权限。开启权限后重新打开本页面即可自动重试。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = extra.danger
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                QuietButton(
+                                    text = "去系统设置授予权限",
+                                    onClick = { openAppSettings(context) }
+                                )
+                            }
+
+                            state.cameraEnumerated == 0 -> {
+                                Text(
+                                    "系统没有报告任何摄像头。此车机可能只提供厂商私有摄像头接口，" +
+                                        "标准 Camera2 拿不到画面。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = extra.warning
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    "完整原因见「日志」页。",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = extra.muted
+                                )
+                            }
+
+                            else -> {
+                                Text(
+                                    "枚举到 ${state.cameraEnumerated} 路，但一路都没打开成功。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = extra.warning
+                                )
+                                if (state.cameraHint.isNotBlank()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        state.cameraHint,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = extra.muted
+                                    )
+                                }
+                                if (state.cameraRetrying) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        "自动重试中（第 ${state.cameraRetryCount} 次，最多 6 次）",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = extra.info
+                                    )
+                                } else if (state.cameraRetryCount >= 6) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        "已重试 6 次仍未成功，自动重试已停止。",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = extra.muted
+                                    )
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                QuietButton(
+                                    text = "再试一次",
+                                    onClick = { onRetryCameras() }
+                                )
+                            }
+                        }
                     }
                 }
             } else {
@@ -286,6 +385,20 @@ private fun copyToClipboard(context: Context, text: String) {
     try {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("CarSentinel announce", text))
+    } catch (_: Throwable) {
+    }
+}
+
+/** 跳到本应用的系统设置页，让用户手动开相机权限 */
+private fun openAppSettings(context: Context) {
+    try {
+        val intent = android.content.Intent(
+            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            android.net.Uri.fromParts("package", context.packageName, null)
+        ).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
     } catch (_: Throwable) {
     }
 }

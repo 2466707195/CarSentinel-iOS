@@ -160,6 +160,9 @@ final class CarClient: ObservableObject {
     @Published private(set) var cameras: [CameraInfo] = []
     @Published private(set) var streamStates: [Int: CameraStreamState] = [:]
     @Published private(set) var carStats: CarStats?
+    /// 最近一次连接失败的原因，给「附近设备」页显示。
+    /// 手动输 IP 时最有用：超时 / 拒绝连接 / 地址不可达，三种原因的修法完全不同。
+    @Published private(set) var lastConnectError: String?
     @Published private(set) var logLines: [String] = []
 
     private var control: TcpConnection?
@@ -181,6 +184,7 @@ final class CarClient: ObservableObject {
 
     func connect(to device: CarDevice) {
         disconnect()
+        lastConnectError = nil
         DispatchQueue.main.async {
             self.device = device
             self.phase = .connecting
@@ -211,9 +215,14 @@ final class CarClient: ObservableObject {
                 self.startTimers()
                 self.controlLoop(c)
             } catch {
-                DispatchQueue.main.async {
-                    self.phase = .failed(error.localizedDescription)
-                    self.appendLog("连接失败：\(error.localizedDescription)")
+                // 把原始错误透出，别只让用户看到「连接失败」四个字
+                let detail = (error as? SocketError)?.description
+                    ?? error.localizedDescription
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.lastConnectError = detail
+                    self.phase = .failed(detail)
+                    self.appendLog("连接失败：\(detail)")
                 }
             }
         }

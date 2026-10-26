@@ -35,7 +35,14 @@ object ServiceController {
         val cpu: Double = 0.0,
         val uptimeSec: Int = 0,
         val announceJson: String = "",
-        val logs: List<LogEntry> = emptyList()
+        val logs: List<LogEntry> = emptyList(),
+        // 摄像头健康状况 —— 0 路时必须让用户知道为什么，而不是一句「正在重试」
+        val cameraEnumerated: Int = 0,
+        val cameraOpened: Int = 0,
+        val cameraHint: String = "",
+        val cameraRetrying: Boolean = false,
+        val cameraRetryCount: Int = 0,
+        val hasCameraPermission: Boolean = true
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -61,6 +68,17 @@ object ServiceController {
     fun stop(context: Context) {
         val intent = Intent(context, StreamService::class.java).apply {
             action = StreamService.ACTION_STOP
+        }
+        try {
+            context.startService(intent)
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** 手动重试打开摄像头（状态页「重试」按钮用） */
+    fun retryCameras(context: Context) {
+        val intent = Intent(context, StreamService::class.java).apply {
+            action = StreamService.ACTION_RETRY_CAMERAS
         }
         try {
             context.startService(intent)

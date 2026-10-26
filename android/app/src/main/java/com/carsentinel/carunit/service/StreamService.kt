@@ -39,9 +39,16 @@ class StreamService : Service(), ServerEnvironment, CameraHub.Delegate, LogBus.L
     companion object {
         const val ACTION_START = "com.carsentinel.carunit.START"
         const val ACTION_STOP = "com.carsentinel.carunit.STOP"
+        const val ACTION_RETRY_CAMERAS = "com.carsentinel.carunit.RETRY_CAMERAS"
         private const val TAG = "StreamService"
         private const val CHANNEL_ID = "cs360-stream"
         private const val NOTIF_ID = 1001
+
+        /** 0 路摄像头时自动重试的间隔与次数上限。
+         *  很多车机首次枚举/打开会失败（摄像头服务没就绪、权限刚授予），
+         *  但不该无限重试 —— 30 秒后停，等用户点「重试」或重启服务。 */
+        private const val CAMERA_RETRY_INTERVAL_MS = 5_000L
+        private const val CAMERA_RETRY_MAX = 6
     }
 
     private val logs = LogBus()
@@ -81,6 +88,18 @@ class StreamService : Service(), ServerEnvironment, CameraHub.Delegate, LogBus.L
                 stopForegroundCompat()
                 stopSelf()
                 return START_NOT_STICKY
+            }
+
+            ACTION_RETRY_CAMERAS -> {
+                val h = hub
+                if (h == null || !running.get()) {
+                    logs.warn("服务未在运行，先启动服务")
+                    startStreaming()
+                } else {
+                    h.retry()
+                    logs.info("手动重试打开摄像头")
+                }
+                publishUi()
             }
 
             else -> startStreaming()
@@ -240,6 +259,7 @@ class StreamService : Service(), ServerEnvironment, CameraHub.Delegate, LogBus.L
     // ---------------- loops ----------------
 
     private fun pollLoop() {
+        var lastRetryAt = 0L
         while (running.get()) {
             try {
                 val srv = server
@@ -251,35 +271,59 @@ class StreamService : Service(), ServerEnvironment, CameraHub.Delegate, LogBus.L
                         val fps = f?.statsFps() ?: 0
                         onCameraState(info.id, f != null && f.isOpen(), fps, kbps)
                     }
+
+                    // 一路都没打开 → 自动重试。车机首次枚举常因摄像头服务没就绪而全失败，
+                    // 但不无限重试：到 CAMERA_RETRY_MAX 次就停，等用户点「重试」。
+                    val now = SystemClock.elapsedRealtime()
+                    if (h.openedCount() == 0 && now - lastRetryAt >= CAMERA_RETRY_INTERVAL_MS) {
+                        if (h.retryCount < CAMERA_RETRY_MAX) {
+                            lastRetryAt = now
+                            h.setRetrying(true)
+                            h.retry()
+                        } else {
+                            h.setRetrying(false)
+                        }
+                    }
+                    if (h.openedCount() > 0) {
+                        h.setRetrying(false)
+                        lastRetryAt = 0L
+                    }
                 }
                 val total = srv?.statsKbps() ?: 0
                 val ip = NetInfo.lanIp() ?: "—"
+                val camUi = h?.currentCameras()?.map { c ->
+                    val f = h.feeder(c.id)
+                    ServiceController.UiCamera(
+                        id = c.id,
+                        name = c.name,
+                        pos = c.pos,
+                        w = c.w,
+                        h = c.h,
+                        fps = if (f?.isOpen() == true) f.statsFps() else 0,
+                        active = f?.isOpen() == true,
+                        kbps = f?.statsKbps() ?: 0,
+                        available = f?.isOpen() == true
+                    )
+                } ?: emptyList()
                 val snap = ServiceController.UiState(
                     running = true,
                     starting = false,
                     deviceName = deviceName,
                     ip = ip,
                     port = Protocol.TCP_PORT,
-                    cameras = h?.currentCameras()?.map { c ->
-                        val f = h.feeder(c.id)
-                        ServiceController.UiCamera(
-                            id = c.id,
-                            name = c.name,
-                            pos = c.pos,
-                            w = c.w,
-                            h = c.h,
-                            fps = if (f?.isOpen() == true) f.statsFps() else 0,
-                            active = f?.isOpen() == true,
-                            kbps = f?.statsKbps() ?: 0,
-                            available = f?.isOpen() == true
-                        )
-                    } ?: emptyList(),
+                    cameras = camUi,
                     totalKbps = total,
                     cpu = cpuSampler.sample(),
                     uptimeSec = if (startedAtMs == 0L) 0
                     else ((SystemClock.elapsedRealtime() - startedAtMs) / 1000).toInt(),
                     announceJson = announcer?.announceJson() ?: "",
-                    logs = logs.snapshot()
+                    logs = logs.snapshot(),
+                    cameraEnumerated = h?.enumeratedCount() ?: 0,
+                    cameraOpened = h?.openedCount() ?: 0,
+                    cameraHint = h?.statusHint() ?: "",
+                    cameraRetrying = h?.retrying == true,
+                    cameraRetryCount = h?.retryCount ?: 0,
+                    hasCameraPermission = hasCameraPermission()
                 )
                 ServiceController.publish(snap)
                 val notifCameras = snap.cameras.size
@@ -292,6 +336,11 @@ class StreamService : Service(), ServerEnvironment, CameraHub.Delegate, LogBus.L
             }
         }
     }
+
+    /** 摄像头权限是否已授予。没授予的话打开必失败，UI 要明确提示而不是显示「重试中」。 */
+    private fun hasCameraPermission(): Boolean =
+        checkSelfPermission(android.Manifest.permission.CAMERA) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
 
     // ---------------- helpers ----------------
 
