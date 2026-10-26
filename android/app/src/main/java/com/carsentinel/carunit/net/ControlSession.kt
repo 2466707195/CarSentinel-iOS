@@ -40,7 +40,7 @@ class ControlSession(
                     .put("t", "welcome")
                     .put("v", Protocol.VERSION)
                     .put("name", env.deviceName())
-                    .put("cameras", env.cameras())
+                    .putCameras("cameras", env.cameras())
             )
             logs("info", "控制连接 $remote")
             var line: String?
@@ -80,11 +80,11 @@ class ControlSession(
                     .put("t", "welcome")
                     .put("v", Protocol.VERSION)
                     .put("name", env.deviceName())
-                    .put("cameras", env.cameras())
+                    .putCameras("cameras", env.cameras())
             )
 
             "list" -> send(
-                Json.Obj().put("t", "cameras").put("cameras", env.cameras())
+                Json.Obj().put("t", "cameras").putCameras("cameras", env.cameras())
             )
 
             "subscribe" -> {
@@ -222,7 +222,7 @@ class ControlRegistry(private val logs: LogBus) : LogBus.Listener {
     }
 
     fun broadcastCameras(cameras: List<CameraInfo>) {
-        broadcast(Json.Obj().put("t", "cameras").put("cameras", cameras).toString())
+        broadcast(Json.Obj().put("t", "cameras").putCameras("cameras", cameras).toString())
     }
 
     fun broadcastState(state: CameraState) {

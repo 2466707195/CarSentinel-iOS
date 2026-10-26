@@ -31,3 +31,7 @@ android/local.properties
 Thumbs.db
 .idea/
 *.iml
+
+# ---- Python 工具（tools/ 下的探针/校验器是本机跑的，不入库缓存）----
+__pycache__/
+*.pyc

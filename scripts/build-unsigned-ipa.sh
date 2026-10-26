@@ -85,28 +85,44 @@ echo ""
 echo "==> [2/4] xcodebuild（Release · generic/platform=iOS · 不签名）"
 rm -rf build
 mkdir -p build
-# 日志同时落盘：本机浏览器常常连不上 GitHub，构建失败时只能靠 artifact 把日志带回来
+# 无论成败都保证有一份可读的日志文件：
+# 哪怕 xcodegen 阶段就挂了，也要留下日志，否则 upload-artifact 会因无文件而静默跳过，
+# 本机就什么都看不到（浏览器常常连不上 GitHub）。
 set +e
-xcodebuild \
-  -project "${APP_NAME}.xcodeproj" \
-  -scheme "$APP_NAME" \
-  -configuration Release \
-  -sdk iphoneos \
-  -destination 'generic/platform=iOS' \
-  -derivedDataPath build/DerivedData \
-  CODE_SIGN_IDENTITY="" \
-  CODE_SIGNING_REQUIRED=NO \
-  CODE_SIGNING_ALLOWED=NO \
-  build 2>&1 | tee build/xcodebuild.log
+{
+  echo "===== xcodegen generate ====="
+  xcodegen generate
+  echo "XCODEGEN_RC=$?"
+  echo ""
+  echo "===== xcodebuild ====="
+  xcodebuild \
+    -project "${APP_NAME}.xcodeproj" \
+    -scheme "$APP_NAME" \
+    -configuration Release \
+    -sdk iphoneos \
+    -destination 'generic/platform=iOS' \
+    -derivedDataPath build/DerivedData \
+    CODE_SIGN_IDENTITY="" \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGNING_ALLOWED=NO \
+    build
+  echo "XCODEBUILD_RC=$?"
+} 2>&1 | tee build/xcodebuild.log
 XCODE_RC=${PIPESTATUS[0]}
 set -e
 if [ "$XCODE_RC" -ne 0 ]; then
   echo ""
-  echo "!! xcodebuild 失败 (exit $XCODE_RC)。日志末尾 100 行：" >&2
+  echo "!! 构建失败。日志末尾 100 行：" >&2
   tail -100 build/xcodebuild.log >&2
   echo "" >&2
-  echo "   完整日志已存到 build/xcodebuild.log，会随 artifact 一起上传。" >&2
+  echo "   完整日志：build/xcodebuild.log（会随 ios-build-log artifact 上传）" >&2
   exit "$XCODE_RC"
+fi
+# 日志里没有失败标记才算真成功
+if grep -qE '^(XCODEGEN|XCODEBUILD)_RC=[^0]' build/xcodebuild.log; then
+  echo "!! 日志里出现了非零退出码" >&2
+  tail -60 build/xcodebuild.log >&2
+  exit 1
 fi
 
 # ---- 3. 打包成未签名 ipa ----

@@ -49,8 +49,14 @@ object Json {
         /**
          * 摄像头数组 —— announce / welcome / cameras / camera_state 都要用。
          * 字段名与顺序严格按 PROTOCOL.md §2.1：id / name / pos / w / h。
+         *
+         * ⚠️ 方法名必须叫 putCameras 而不是 put：Kotlin 的泛型在 JVM 上会擦除，
+         *    `put(String, List<Obj>)` / `put(String, List<String>)` /
+         *    `put(String, List<CameraInfo>)` 编译后全是
+         *    `put(String, Ljava/util/List;)`，直接报 Platform declaration clash。
+         *    换名字是唯一解（加 @JvmName 对这个场景也没用，因为是同一编译单元内的重载）。
          */
-        fun put(key: String, value: List<CameraInfo>): Obj {
+        fun putCameras(key: String, value: List<CameraInfo>): Obj {
             map[key] = ArrayList<Any?>(value.map { c ->
                 Obj()
                     .put("id", c.id)

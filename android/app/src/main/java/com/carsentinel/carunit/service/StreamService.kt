@@ -167,7 +167,7 @@ class StreamService : Service(), ServerEnvironment, CameraHub.Delegate, LogBus.L
             // 摄像头集合变化主动推
             val line = com.carsentinel.carunit.net.Json.Obj()
                 .put("t", "cameras")
-                .put("cameras", infos)
+                .putCameras("cameras", infos)
                 .toString()
             srv.registryBroadcast(line)
         }
