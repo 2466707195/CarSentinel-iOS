@@ -17,6 +17,7 @@ import android.util.Log
 import com.carsentinel.carunit.MainActivity
 import com.carsentinel.carunit.R
 import com.carsentinel.carunit.camera.CameraHub
+import com.carsentinel.carunit.camera.DeviceProbe
 import com.carsentinel.carunit.net.Announcer
 import com.carsentinel.carunit.net.CameraInfo
 import com.carsentinel.carunit.net.CameraSink
@@ -40,6 +41,7 @@ class StreamService : Service(), ServerEnvironment, CameraHub.Delegate, LogBus.L
         const val ACTION_START = "com.carsentinel.carunit.START"
         const val ACTION_STOP = "com.carsentinel.carunit.STOP"
         const val ACTION_RETRY_CAMERAS = "com.carsentinel.carunit.RETRY_CAMERAS"
+        const val ACTION_PROBE = "com.carsentinel.carunit.PROBE"
         private const val TAG = "StreamService"
         private const val CHANNEL_ID = "cs360-stream"
         private const val NOTIF_ID = 1001
@@ -102,6 +104,22 @@ class StreamService : Service(), ServerEnvironment, CameraHub.Delegate, LogBus.L
                 publishUi()
             }
 
+            ACTION_PROBE -> {
+                // 诊断不依赖服务是否在跑；没跑就先拉起来，保证日志有上下文
+                if (!running.get()) startStreaming()
+                Thread({
+                    try {
+                        DeviceProbe.logSummary(this@StreamService, logs)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "probe failed", t)
+                    }
+                    publishUi()
+                }, "cs360-probe-manual").apply {
+                    isDaemon = true
+                    start()
+                }
+            }
+
             else -> startStreaming()
         }
         return START_STICKY
@@ -140,6 +158,27 @@ class StreamService : Service(), ServerEnvironment, CameraHub.Delegate, LogBus.L
         ann.start()
 
         h.start()
+
+        // 摄像头一路都没打开时，自动跑一次完整诊断 ——
+        // 把「这台机器到底有什么、为什么不行」一次性列进日志，
+        // 不用用户反复试。延迟 3 秒等首次打开结果出来。
+        if (h.enumeratedCount() == 0 || h.openedCount() == 0) {
+            val diagThread = Thread({
+                try {
+                    Thread.sleep(3000)
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+                if (!running.get()) return@Thread
+                try {
+                    DeviceProbe.logSummary(this@StreamService, logs)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "probe failed", t)
+                }
+            }, "cs360-probe")
+            diagThread.isDaemon = true
+            diagThread.start()
+        }
 
         poller = Thread({ pollLoop() }, "cs360-poll").apply { start() }
 

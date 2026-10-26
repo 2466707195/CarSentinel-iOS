@@ -58,6 +58,9 @@ class CameraHub(
     /** cameraId → (name, pos)，枚举阶段就记下，重试时复用 */
     private val pendingNames = ConcurrentHashMap<String, Pair<String, String>>()
 
+    /** cameraId 是否外接（LENS_FACING_EXTERNAL）。外接走宽容档。 */
+    private val externalIds = ConcurrentHashMap<String, Boolean>()
+
     /** 枚举出来的全部 cameraId，重试的依据 */
     @Volatile
     private var enumeratedIds: List<String> = emptyList()
@@ -154,12 +157,14 @@ class CameraHub(
 
             var pos = Protocol.POS_UNKNOWN
             var name = "摄像头 $index"
+            var external = false
             try {
                 val ch = manager.getCameraCharacteristics(camId)
                 pos = when (ch.get(CameraCharacteristics.LENS_FACING)) {
                     CameraCharacteristics.LENS_FACING_FRONT -> Protocol.POS_FRONT
                     CameraCharacteristics.LENS_FACING_BACK -> Protocol.POS_REAR
                     CameraCharacteristics.LENS_FACING_EXTERNAL -> {
+                        external = true
                         val slot = Math.abs(camId.hashCode()) % EXTERNAL_CYCLE
                         when (slot) {
                             0 -> Protocol.POS_LEFT
@@ -174,7 +179,12 @@ class CameraHub(
                 logs.warn("读取摄像头 $camId 特性失败：${t.message}")
             }
             pendingNames[camId] = name to pos
+            externalIds[camId] = external
             val id = stableId(camId, index)
+
+            // 外接摄像头走宽容档：低分辨率优先，避开车机 UVC 带宽/供电不足的问题
+            val mode = if (external) CameraFeeder.Mode.EXTERNAL
+            else CameraFeeder.Mode.STANDARD
 
             val feeder = CameraFeeder(
                 cameraId = camId,
@@ -182,7 +192,8 @@ class CameraHub(
                 targetW = 1280,
                 targetH = 720,
                 targetFps = 30,
-                bitrate = 2_500_000
+                bitrate = 2_500_000,
+                mode = mode
             )
             feeder.protocolId = id
             feeder.listener = this
@@ -213,6 +224,7 @@ class CameraHub(
         infos.clear()
         pendingNames.clear()
         failedReasons.clear()
+        externalIds.clear()
         enumeratedIds = emptyList()
         lastError = null
     }

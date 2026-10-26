@@ -86,6 +86,18 @@ object ServiceController {
         }
     }
 
+    /** 跑一次设备诊断，结果进日志（状态页「设备诊断」按钮用）。
+     *  不需要服务在跑 —— 没启动也会先拉起来再诊断。 */
+    fun runProbe(context: Context) {
+        val intent = Intent(context, StreamService::class.java).apply {
+            action = StreamService.ACTION_PROBE
+        }
+        try {
+            context.startService(intent)
+        } catch (_: Throwable) {
+        }
+    }
+
     internal fun publish(next: UiState) {
         _state.value = next
     }

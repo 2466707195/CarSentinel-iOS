@@ -34,10 +34,23 @@ class CameraFeeder(
     private val targetW: Int = 1280,
     private val targetH: Int = 720,
     private val targetFps: Int = 30,
-    private val bitrate: Int = 2_500_000
+    private val bitrate: Int = 2_500_000,
+    /** 采集档位：STANDARD 走常规路径；EXTERNAL 对外接 UVC 更宽容
+     *  （低分辨率优先、允许单缓冲、错误信息更细）。 */
+    private val mode: Mode = Mode.STANDARD
 ) {
+    enum class Mode { STANDARD, EXTERNAL }
+
     companion object {
         private const val TAG = "CameraFeeder"
+
+        /** 外接 UVC 常用但 Camera2 不一定乐于给出的低分辨率，作为首选 */
+        private val EXTERNAL_PREFERRED = arrayOf(
+            arrayOf(640, 480),
+            arrayOf(320, 240),
+            arrayOf(1280, 720),
+            arrayOf(1920, 1080)
+        )
     }
 
     interface Listener {
@@ -134,14 +147,24 @@ class CameraFeeder(
                 }
             }, h)
         } catch (e: CameraAccessException) {
-            fail("CameraAccessException ${e.reason}")
+            fail("CameraAccessException(${reasonText(e.reason)}): ${e.message}")
         } catch (e: SecurityException) {
-            fail("SecurityException ${e.message}")
+            fail("SecurityException: ${e.message}（相机权限未授予？）")
         } catch (e: IllegalArgumentException) {
-            fail("IllegalArgumentException ${e.message}")
+            fail("IllegalArgumentException: ${e.message}")
         } catch (t: Throwable) {
             fail("${t.javaClass.simpleName}: ${t.message}")
         }
+    }
+
+    /** CameraAccessException 的错误码翻译成人话，别让用户去查文档 */
+    private fun reasonText(reason: Int): String = when (reason) {
+        CameraAccessException.CAMERA_IN_USE -> "摄像头被其他应用占用"
+        CameraAccessException.MAX_CAMERAS_IN_USE -> "同时打开的摄像头数已达上限"
+        CameraAccessException.CAMERA_DISABLED -> "摄像头被设备策略禁用"
+        CameraAccessException.CAMERA_DISCONNECTED -> "摄像头物理断开"
+        CameraAccessException.CAMERA_ERROR -> "摄像头硬件错误"
+        else -> "reason=$reason"
     }
 
     /** 协议里的摄像头编号，由 Hub 在建 feeder 时回填 */
@@ -228,6 +251,21 @@ class CameraFeeder(
             emptyArray()
         }
         if (sizes.isEmpty()) return Size(targetW, targetH)
+
+        // 外接 UVC：优先要低分辨率。车机上的 UVC 摄像头常在高分辨率下
+        // 因带宽/供电不足而直接打不开，640x480 反而稳。
+        if (mode == Mode.EXTERNAL) {
+            for (pref in EXTERNAL_PREFERRED) {
+                val exact = sizes.firstOrNull {
+                    it.width == pref[0] && it.height == pref[1]
+                }
+                if (exact != null) return exact
+            }
+            // 没有精确匹配就取面积最小的（最保守）
+            return sizes.minByOrNull { it.width.toLong() * it.height }
+                ?: Size(targetW, targetH)
+        }
+
         var best: Size? = null
         var bestScore = Long.MAX_VALUE
         for (s in sizes) {

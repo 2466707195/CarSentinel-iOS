@@ -54,6 +54,7 @@ fun StatusScreen(
     state: ServiceController.UiState,
     onToggleService: (Boolean) -> Unit,
     onRetryCameras: () -> Unit,
+    onRunProbe: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val extra = AppTheme.colors
@@ -260,10 +261,18 @@ fun StatusScreen(
                                     )
                                 }
                                 Spacer(Modifier.height(10.dp))
-                                QuietButton(
-                                    text = "再试一次",
-                                    onClick = { onRetryCameras() }
-                                )
+                                // 诊断和重试并排：重试解决「临时没就绪」，
+                                // 诊断解决「这台机器到底有什么」
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    QuietButton(
+                                        text = "再试一次",
+                                        onClick = { onRetryCameras() }
+                                    )
+                                    QuietButton(
+                                        text = "设备诊断",
+                                        onClick = { onRunProbe() }
+                                    )
+                                }
                             }
                         }
                     }
@@ -334,6 +343,11 @@ fun StatusScreen(
                             copyToClipboard(context, state.announceJson.ifBlank { "{}" })
                             toast = "已复制 announce JSON"
                         }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    QuietButton(
+                        text = "设备诊断",
+                        onClick = { onRunProbe() }
                     )
                     if (toast != null) {
                         Spacer(Modifier.height(8.dp))
