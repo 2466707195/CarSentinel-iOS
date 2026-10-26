@@ -34,7 +34,8 @@ final class DiscoveryService: ObservableObject {
     /// 主动探测一次：往广播地址发 DISCOVER，车机会立刻回一条 announce
     func probe() {
         queue.async { [weak self] in
-            guard let self else { return }
+            // 这里 self 只是用来发一个包，失败无所谓，所以不需要强引用
+            guard self != nil else { return }
             do {
                 let sock = try UdpSocket(bindPort: 0, reuseAddr: false, broadcast: true)
                 defer { sock.close() }

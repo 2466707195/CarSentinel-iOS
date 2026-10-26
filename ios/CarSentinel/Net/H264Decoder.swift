@@ -15,13 +15,19 @@ import AVFoundation
 //   2. 送给 VideoToolbox 的 sample data 用 **AVCC 格式**（每个 NAL 前加 4 字节大端长度），
 //      这是文档规定的格式；Annex-B 起始码在这里先剥掉再换成长度前缀。
 
-// 注意：这个 SDK（Xcode 26.3 / iPhoneOS 26.2）导入的 VTDecompressionOutputCallback 是
-// 【7 个参数】，没有 sourceFrameRefCon。写成 8 个会报
-//   expects 7 arguments, but 8 were used in closure body
-// 如果换 SDK 后报「expects 8 arguments」，就把 sourceFrameRefCon 加回去。
+// 这个 SDK（Xcode 26.3 / iPhoneOS 26.2）导入的 VTDecompressionOutputCallback 是
+// 【7 个参数】。实测（CI 报错反推）顺序为：
+//   (decompressionOutputRefCon, sourceFrameRefCon, status, infoFlags, imageBuffer, pts, duration)
+// 即：两个 refCon 都在，但没有 dts。
+//
+// 踩过的坑（都留作说明，换 SDK 时按报错反推）：
+//   · 写 8 参（含 dts）→ "expects 7 arguments, but 8 were used"
+//   · 把第 2 参当成 status → "cannot convert 'UnsafeMutableRawPointer?' to expected 'Int32'"
+// 判据：`guard status == noErr` 那行如果说 status 是指针类型，就是参数位次错了。
+// 如果换 SDK 后报 "expects 8 arguments"，把 dts 加到最后即可。
 private let csDecompressionOutputCallback: VTDecompressionOutputCallback = {
-    refCon, status, infoFlags, imageBuffer, pts, duration, dts in
-    guard status == noErr, let imageBuffer, let refCon else { return }
+    decompressionOutputRefCon, sourceFrameRefCon, status, infoFlags, imageBuffer, pts, duration in
+    guard status == noErr, let imageBuffer, let refCon = decompressionOutputRefCon else { return }
     let decoder = Unmanaged<H264Decoder>.fromOpaque(refCon).takeUnretainedValue()
     decoder.emitDecodedFrame(imageBuffer, presentationTime: pts)
 }

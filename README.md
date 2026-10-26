@@ -77,18 +77,20 @@ build\logs\android-build-log\gradle.log     ← Kotlin 编译错误在这
 ### 第一次构建前，先知道这几个「本机验不了的签名」
 
 这份代码**一次都没有真正编译过**（开发机没有 Mac、没有 Android SDK）。
-除了两个独立静态审查 + 9 项机械校验，下面这几处是**唯一**没法在本机验证的，
-CI 报错时按这张表改，不用重新推理：
+第一次 CI 已经暴露并修掉了以下几类问题，都属于「静态检查抓不到、只有编译器知道」的：
 
-| 位置 | 如果 CI 报这个错 | 改成 |
+| 类别 | 实例 | 教训 |
 | --- | --- | --- |
-| `ios/CarSentinel/Net/H264Decoder.swift` 的 `makeFormatDescription` | `cannot convert value of type '[UnsafePointer<UInt8>?]' to expected argument type 'UnsafePointer<UnsafePointer<UInt8>>'` | 把 `let pointers: [UnsafePointer<UInt8>?]` 的 `?` 去掉。两种写法互斥，只可能对一种 |
-| `ios/CarSentinel/Net/H264Decoder.swift` 的 `emitDecodedFrame` | `CMSampleBufferCreateReadyWithImageBuffer` 参数标签不符 | `sampleTiming:` 可能要写成 `sampleTimingEntryArray:`，按报错提示对齐 |
+| Kotlin 泛型擦除 | `put(List<Obj>)` 和 `put(List<String>)` 编译后 JVM 签名相同，报 `Platform declaration clash` | 泛型参数的重载**不能**靠重载区分，必须换方法名 |
+| 资产里的语法错误 | Aurora UI 自带的 `Theme.kt` 有 `val warningContainer: Color(0xFFFFEDCB)` 少个 `=` | 抄来的代码也要当心；一个等号炸出 14 个 unresolved |
+| C API 的 Swift 导入 | `VTDecompressionOutputCallback` 在这个 SDK 上是 **7 参**（无 `sourceFrameRefCon`）；`close(fd)` 要写 `Darwin.close(fd)` | 编译器的 expected 提示是唯一权威 |
+| CoreMedia 标签 | `dataLength:` 不是 `length:`；`sampleTimingArray:` 不是 `sampleTimingEntryArray:`；`flags:` 不是 `decodeFlags:` | 同上 |
+| private 挡住跨类访问 | `CameraFeeder.cameraId`、`ControlRegistry.broadcast` | 跨类访问的属性/方法别写 private |
 
-其余 VideoToolbox / AVFoundation 调用（`VTDecompressionSessionCreate`、
-`VTDecompressionOutputCallbackRecord`、`decodeFlags:`、`CMBlockBufferCreateWithMemoryBlock`、
-`AVSampleBufferDisplayLayer.isReadyForMoreMediaData` 等）都已由独立审查逐签名核对过，
-大概率不需要动。
+**剩下的一个已知不确定点**在 `ios/CarSentinel/Net/H264Decoder.swift` 的 `makeFormatDescription`：
+指针数组 `[UnsafePointer<UInt8>]` 的可选性。如果 CI 报
+`cannot convert value of type 'UnsafePointer<UnsafePointer<UInt8>?>' ...`，
+就在那个数组上加 `?`；反之报非可选就去掉。两种写法互斥，只可能对一种。
 
 > 公开仓库的 Actions 分钟数不限；私有仓库免费版 macOS 按 10 倍折算 ≈ 200 分钟/月
 > （一次构建 3~6 分钟，够用）。
