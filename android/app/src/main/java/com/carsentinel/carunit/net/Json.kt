@@ -35,13 +35,20 @@ object Json {
             return this
         }
 
-        fun put(key: String, value: List<Obj>): Obj {
+        // ⚠️ Kotlin 泛型在 JVM 上擦除，下面三个「List 参数」的重载编译后全是
+        //    put(String, Ljava/util/List;)，直接 Platform declaration clash。
+        //    所以必须用不同的方法名区分，不能靠重载。
+        //    这个坑在 Aurora UI 自带的 Json.kt 里原本就存在（List<Obj> vs List<String>），
+        //    只是以前没人编译过它。
+
+        /** 扁平对象数组 */
+        fun putObjects(key: String, value: List<Obj>): Obj {
             map[key] = ArrayList<Any?>(value)
             return this
         }
 
         /** 字符串数组，例如 caps */
-        fun put(key: String, value: List<String>): Obj {
+        fun putStrings(key: String, value: List<String>): Obj {
             map[key] = ArrayList<Any?>(value)
             return this
         }
@@ -49,12 +56,6 @@ object Json {
         /**
          * 摄像头数组 —— announce / welcome / cameras / camera_state 都要用。
          * 字段名与顺序严格按 PROTOCOL.md §2.1：id / name / pos / w / h。
-         *
-         * ⚠️ 方法名必须叫 putCameras 而不是 put：Kotlin 的泛型在 JVM 上会擦除，
-         *    `put(String, List<Obj>)` / `put(String, List<String>)` /
-         *    `put(String, List<CameraInfo>)` 编译后全是
-         *    `put(String, Ljava/util/List;)`，直接报 Platform declaration clash。
-         *    换名字是唯一解（加 @JvmName 对这个场景也没用，因为是同一编译单元内的重载）。
          */
         fun putCameras(key: String, value: List<CameraInfo>): Obj {
             map[key] = ArrayList<Any?>(value.map { c ->

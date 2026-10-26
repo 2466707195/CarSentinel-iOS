@@ -15,8 +15,12 @@ import AVFoundation
 //   2. 送给 VideoToolbox 的 sample data 用 **AVCC 格式**（每个 NAL 前加 4 字节大端长度），
 //      这是文档规定的格式；Annex-B 起始码在这里先剥掉再换成长度前缀。
 
+// 注意：这个 SDK（Xcode 26.3 / iPhoneOS 26.2）导入的 VTDecompressionOutputCallback 是
+// 【7 个参数】，没有 sourceFrameRefCon。写成 8 个会报
+//   expects 7 arguments, but 8 were used in closure body
+// 如果换 SDK 后报「expects 8 arguments」，就把 sourceFrameRefCon 加回去。
 private let csDecompressionOutputCallback: VTDecompressionOutputCallback = {
-    refCon, sourceFrameRefCon, status, infoFlags, imageBuffer, pts, duration, dts in
+    refCon, status, infoFlags, imageBuffer, pts, duration, dts in
     guard status == noErr, let imageBuffer, let refCon else { return }
     let decoder = Unmanaged<H264Decoder>.fromOpaque(refCon).takeUnretainedValue()
     decoder.emitDecodedFrame(imageBuffer, presentationTime: pts)

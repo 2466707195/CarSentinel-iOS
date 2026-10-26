@@ -29,8 +29,8 @@ class Announcer(
             o.put("v", Protocol.VERSION)
             o.put("name", if (name.length > MAX_NAME) name.take(MAX_NAME) else name)
             o.put("port", Protocol.TCP_PORT)
-            // 这里手工 map 成 List<Json.Obj>，走 put(String, List<Obj>) 重载
-            o.put("cameras", cameras.map { c ->
+            // 手工 map 成 List<Json.Obj>，走 putObjects 重载
+            o.putObjects("cameras", cameras.map { c ->
                 Json.Obj()
                     .put("id", c.id)
                     .put("name", c.name)
@@ -38,7 +38,7 @@ class Announcer(
                     .put("w", c.w)
                     .put("h", c.h)
             })
-            o.put("caps", listOf("h264"))
+            o.putStrings("caps", listOf("h264"))
             return o.toString()
         }
     }
