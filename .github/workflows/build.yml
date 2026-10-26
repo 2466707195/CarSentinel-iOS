@@ -97,7 +97,7 @@ jobs:
           java -version 2>&1 | head -1 || true
           gradle -v 2>&1 | head -5 || true
 
-      - name: Build unsigned apk
+      - name: Build signed apk
         run: bash scripts/build-android.sh
 
       # 同上：失败时把 Gradle 日志带回来
@@ -116,6 +116,7 @@ jobs:
         with:
           name: android-unsigned-apk
           path: |
-            build/*.apk
+            build/CarSentinelCarUnit-release.apk
+            build/carsentinel.jks.base64
           if-no-files-found: error
           retention-days: 30

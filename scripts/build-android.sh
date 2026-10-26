@@ -10,7 +10,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ANDROID_DIR="$ROOT_DIR/android"
-APK_NAME="CarSentinelCarUnit-release-unsigned.apk"
 OUT_DIR="$ROOT_DIR/build"
 
 log() { echo -e "\033[1;36m[build-android]\033[0m $*"; }
@@ -73,7 +72,49 @@ if [[ $RC -ne 0 ]]; then
   exit $RC
 fi
 
-# ---------- 6. 收集产物 ----------
+# ---------- 6. 签名 ----------
+# 未签名的 APK 装不上（adb install 报 INSTALL_PARSE_FAILED_NO_CERTIFICATES，
+# 文件管理器也会拒）。所以这里必须签。
+#
+# keystore 来源，按优先级：
+#   1. 环境变量 ANDROID_KEYSTORE_BASE64（配成 GitHub Secret，实现稳定升级）
+#   2. 本地已有的 $OUT_DIR/carsentinel.jks
+#   3. 都没有 → 用固定参数现生成一个（首次构建会这样）
+#
+# ⚠️ 情况 3 意味着每次干净 CI 都会换一把 key。要能覆盖升级，必须把这次的 keystore
+#    存成 GitHub Secret（ANDROID_KEYSTORE_BASE64），详见 README「Android 签名」。
+KS="$OUT_DIR/carsentinel.jks"
+KS_ALIAS="carsentinel"
+KS_PASS="carsentinel"
+
+if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
+  log "使用 Secret 里的 keystore"
+  echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KS"
+elif [[ -f "$KS" ]]; then
+  log "复用本地 keystore: $KS"
+else
+  log "生成新 keystore（固定参数，便于之后固化成 Secret）"
+  keytool -genkeypair -v \
+    -keystore "$KS" \
+    -alias "$KS_ALIAS" \
+    -keyalg RSA -keysize 2048 -validity 10000 \
+    -storepass "$KS_PASS" -keypass "$KS_PASS" \
+    -dname "CN=CarSentinel 360, OU=Car, O=CarSentinel, L=NA, C=NA" \
+    2>&1 | tail -3
+fi
+
+# 找 apksigner：SDK 的 build-tools 下，取最新版
+APKSIGNER=""
+for d in "$SDK"/build-tools/*/; do
+  if [[ -x "${d}apksigner" ]]; then APKSIGNER="${d}apksigner"; fi
+done
+if [[ -z "$APKSIGNER" ]]; then
+  err "找不到 apksigner（$SDK/build-tools/*/apksigner）"
+  exit 1
+fi
+log "apksigner: $APKSIGNER"
+
+# ---------- 7. 收集产物 + 签名 ----------
 APK_GLOB="$ANDROID_DIR/app/build/outputs/apk/release/*.apk"
 shopt -s nullglob
 APKS=($APK_GLOB)
@@ -85,14 +126,26 @@ if [[ ${#APKS[@]} -eq 0 ]]; then
 fi
 
 mkdir -p "$OUT_DIR"
-DEST="$OUT_DIR/$APK_NAME"
-cp -f "${APKS[0]}" "$DEST"
+UNSIGNED="${APKS[0]}"
+SIGNED="$OUT_DIR/CarSentinelCarUnit-release.apk"
 
+log "签名 $UNSIGNED -> $SIGNED"
+"$APKSIGNER" sign \
+  --ks "$KS" --ks-pass "pass:$KS_PASS" \
+  --key-pass "pass:$KS_PASS" \
+  --out "$SIGNED" "$UNSIGNED"
+"$APKSIGNER" verify --print-certs "$SIGNED" | head -5
+
+# keystore 也打成 base64 随 artifact 输出，供用户备份 / 配成 Secret
+base64 -w0 "$KS" > "$OUT_DIR/carsentinel.jks.base64"
+log "keystore 备份: $OUT_DIR/carsentinel.jks.base64（请保存，丢失后无法覆盖升级）"
+
+DEST="$SIGNED"
 SIZE_BYTES="$(stat -c '%s' "$DEST" 2>/dev/null || wc -c < "$DEST")"
 SHA256="$(sha256sum "$DEST" | awk '{print $1}')"
 
 log "=================================================="
-log "APK     : $DEST"
+log "APK     : $DEST  (已签名)"
 log "Size    : $SIZE_BYTES bytes ($(( SIZE_BYTES / 1024 )) KB)"
 log "SHA-256 : $SHA256"
 log "=================================================="

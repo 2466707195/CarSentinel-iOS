@@ -77,7 +77,22 @@ unavailable 并从 `announce.cameras` 里移除，不影响其他路，也不阻
 ./scripts/build-android.sh
 ```
 
-产物：`build/CarSentinelCarUnit-release-unsigned.apk`（含大小与 sha256）。
+产物（都在 `build/` 下）：
+
+| 文件 | 说明 |
+| --- | --- |
+| `CarSentinelCarUnit-release.apk` | **已签名**，可直接安装 |
+| `carsentinel.jks.base64` | 签名 keystore 的 base64，**请备份** |
+| `gradle.log` | 构建日志（失败时） |
+
+### 签名
+
+未签名 APK 装不上，所以脚本会自动签。keystore 按优先级取自：
+`ANDROID_KEYSTORE_BASE64` 环境变量（GitHub Secret）→ 本地已有 → 固定参数现生成。
+
+第一次构建是「现生成」，那把 key 只活在那次 CI 里。要覆盖升级，得把这次的
+`carsentinel.jks.base64` 存成名为 `ANDROID_KEYSTORE_BASE64` 的 Secret。
+keystore 在 `build/` 下，被 `.gitignore` 忽略，不会进仓库。
 
 ### 关于没有 Gradle Wrapper JAR
 

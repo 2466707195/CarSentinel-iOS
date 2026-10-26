@@ -58,8 +58,33 @@ powershell -File scripts\publish-github.ps1 -Token ghp_xxx
 | 文件 | 是什么 | 怎么装 |
 | --- | --- | --- |
 | `CarSentinel-unsigned.ipa` | iOS 手机端 | 拖进全能签 / ESign → 选证书重签 → 下载 → 装到 iPhone |
-| `CarSentinelCarUnit-release-unsigned.apk` | Android 车机端 | 传到车机，文件管理器安装（允许未知来源） |
+| `CarSentinelCarUnit-release.apk` | Android 车机端（已签名） | 传到车机，文件管理器安装（允许未知来源） |
+| `carsentinel.jks.base64` | 签名用的 keystore | **请备份**。丢失后无法覆盖升级，只能卸载重装 |
 | `Info.json` | ipa 里的 Info.plist 转成的 JSON | Windows 上没有 `plutil`，验包靠它 |
+
+### Android 签名（重要）
+
+Android 的未签名 APK **装不上**（`adb install` 报 `INSTALL_PARSE_FAILED_NO_CERTIFICATES`），
+所以 CI 里会用 `keytool` + `apksigner` 自动签。
+
+keystore 的来源按优先级：
+
+1. **Secret `ANDROID_KEYSTORE_BASE64`** —— 稳定升级的正确做法
+2. `build/carsentinel.jks`（本地已有）
+3. 都没有 → 用固定参数现生成一把
+
+**首次构建走的是第 3 种**，意味着那把 key 只存在于那一次 CI 里。
+要能覆盖升级，第一次构建完后：
+
+```powershell
+# 1. 从 artifact 里拿到 carsentinel.jks.base64（publish-github.ps1 会自动下载）
+# 2. 存成 GitHub Secret（名字必须叫 ANDROID_KEYSTORE_BASE64，值就是文件全文）
+```
+
+之后所有构建都用同一把 key，升级安装不会冲突。
+
+> keystore 本身在 `build/` 下，已被 `.gitignore` 忽略，**不会进公开仓库**。
+> 但下载到本地的那份请自己保管好。
 
 ### 构建失败怎么办
 
