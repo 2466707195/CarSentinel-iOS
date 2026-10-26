@@ -94,6 +94,44 @@ unavailable 并从 `announce.cameras` 里移除，不影响其他路，也不阻
 `carsentinel.jks.base64` 存成名为 `ANDROID_KEYSTORE_BASE64` 的 Secret。
 keystore 在 `build/` 下，被 `.gitignore` 忽略，不会进仓库。
 
+## 摄像头采集层
+
+车机上「打不开摄像头」的原因很多，所以采集分三层，全部自动：
+
+| 层 | 走什么 | 什么时候用 |
+| --- | --- | --- |
+| **Camera2 STANDARD** | 常规 Camera2，优先 1280×720 | 内置摄像头（前/后） |
+| **Camera2 EXTERNAL** | 同一套 Camera2 但**低分辨率优先**（640×480 → 320×240） | `LENS_FACING_EXTERNAL` 的外接摄像头。车机 UVC 常因带宽/供电不足在高分辨率下直接失败 |
+| **设备诊断** | 全量探测，结果进日志 | 上面两层都不行时，一次说清「这台机器到底有什么」 |
+
+### 为什么没有「USB UVC 直采」
+
+纯 Java 层**做不了** UVC 视频采集：UVC 摄像头必须走 USB isochronous 传输，
+而 Android 的 `UsbRequest` 只支持 bulk/interrupt。要做只能上 native
+（libusb/libuvc + JNI），那是另一个量级的工程。
+
+如果诊断显示「有 USB 视频设备但 Camera2 枚举不到」，说明系统没把 UVC 注册成摄像头，
+此时要么让系统加载 UVC 驱动，要么走 native 方案。
+
+### 自动重试
+
+0 路时每 5 秒重试一次，最多 6 次（30 秒），到量停止并明说。
+很多车机首次枚举时摄像头服务还没就绪，第一次全失败很常见。
+也可以点状态页的「再试一次」手动重试。
+
+### 设备诊断
+
+服务启动时若 0 路会自动跑一次；也可以随时点状态页「设备诊断」。
+输出到「日志」页，包含：
+
+- 相机权限是否授予
+- Camera2 报告的摄像头数、每个的朝向 / 硬件级别 / 支持的分辨率
+- 旧 Camera API 报告的摄像头数（有些车机只在老 API 里暴露）
+- USB 视频类设备列表（vid/pid/接口数）
+- 设备型号 / Android 版本 / API level
+
+把日志贴出来就能定位问题，不用反复试。
+
 ### 关于没有 Gradle Wrapper JAR
 
 本仓库**刻意不提交 `gradle/wrapper/gradle-wrapper.jar`** —— 它是二进制，

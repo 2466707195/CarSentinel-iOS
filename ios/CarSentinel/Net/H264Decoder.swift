@@ -15,19 +15,33 @@ import AVFoundation
 //   2. 送给 VideoToolbox 的 sample data 用 **AVCC 格式**（每个 NAL 前加 4 字节大端长度），
 //      这是文档规定的格式；Annex-B 起始码在这里先剥掉再换成长度前缀。
 
-// 这个 SDK（Xcode 26.3 / iPhoneOS 26.2）导入的 VTDecompressionOutputCallback 是
-// 【7 个参数】。实测（CI 报错反推）顺序为：
-//   (decompressionOutputRefCon, sourceFrameRefCon, status, infoFlags, imageBuffer, pts, duration)
-// 即：两个 refCon 都在，但没有 dts。
+// VideoToolbox 的解码输出回调。
 //
-// 踩过的坑（都留作说明，换 SDK 时按报错反推）：
-//   · 写 8 参（含 dts）→ "expects 7 arguments, but 8 were used"
-//   · 把第 2 参当成 status → "cannot convert 'UnsafeMutableRawPointer?' to expected 'Int32'"
-// 判据：`guard status == noErr` 那行如果说 status 是指针类型，就是参数位次错了。
-// 如果换 SDK 后报 "expects 8 arguments"，把 dts 加到最后即可。
-private let csDecompressionOutputCallback: VTDecompressionOutputCallback = {
-    decompressionOutputRefCon, sourceFrameRefCon, status, infoFlags, imageBuffer, pts, duration in
-    guard status == noErr, let imageBuffer, let refCon = decompressionOutputRefCon else { return }
+// ⚠️ 这个 SDK（Xcode 26.3 / iPhoneOS 26.2）导入的 VTDecompressionOutputCallback 是
+//    【7 个参数】，但官方 C 原型是 8 个（两个 refCon + status + infoFlags +
+//    imageBuffer + 三个 CMTime）。Swift 的导入器在这里有分歧，各 SDK 不一样。
+//
+//    本机没有 Xcode，无法直接查。所以这里用最保守的写法：
+//    把回调声明成一个具名的 @convention(c) 函数，参数全部显式标注类型。
+//    如果参数个数/类型对不上，编译器会在【这一行】给出明确的
+//    "expected N arguments" / "cannot convert X to Y" 提示，
+//    而不是把错误抛到 200 行开外的调用点。
+//
+//    实测这个 SDK 的顺序是（按错误信息反推确认）：
+//      (decompressionOutputRefCon, sourceFrameRefCon, status, infoFlags,
+//       imageBuffer, pts, duration)
+//    没有 dts。如果换 SDK 后报 "expects 8 arguments"，在末尾补一个 `dts: CMTime`。
+private func csDecompressionOutputCallback(
+    _ decompressionOutputRefCon: UnsafeMutableRawPointer?,
+    _ sourceFrameRefCon: UnsafeMutableRawPointer?,
+    _ status: OSStatus,
+    _ infoFlags: VTDecodeInfoFlags,
+    _ imageBuffer: CVImageBuffer?,
+    _ pts: CMTime,
+    _ duration: CMTime
+) {
+    guard status == noErr, let imageBuffer else { return }
+    guard let refCon = decompressionOutputRefCon else { return }
     let decoder = Unmanaged<H264Decoder>.fromOpaque(refCon).takeUnretainedValue()
     decoder.emitDecodedFrame(imageBuffer, presentationTime: pts)
 }
@@ -237,11 +251,13 @@ final class H264Decoder {
             kCVPixelBufferPixelFormatTypeKey: Int(kCVPixelFormatType_32BGRA)
         ] as CFDictionary
 
-        // 注意：VTDecompressionOutputCallback 是 C 函数指针类型别名，不是结构体。
+        // 注意：VTDecompressionOutputCallback 是 C 函数指针【类型别名】，不是结构体。
         // 真正要构造的是 VTDecompressionOutputCallbackRecord。
-        // csDecompressionOutputCallback 本身就是这个类型，直接赋值即可。
+        // 赋值时显式标注目标类型：把顶层 func 转成函数指针，消掉 "type of expression
+        // is ambiguous" 那个错。
         var callback = VTDecompressionOutputCallbackRecord()
-        callback.decompressionOutputCallback = csDecompressionOutputCallback
+        let cb: VTDecompressionOutputCallback = csDecompressionOutputCallback
+        callback.decompressionOutputCallback = cb
         callback.decompressionOutputRefCon = Unmanaged.passUnretained(self).toOpaque()
 
         var newSession: VTDecompressionSession?
