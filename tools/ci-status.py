@@ -12,8 +12,16 @@ def gh(path):
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "cs-status",
     })
-    with urllib.request.urlopen(r, timeout=60) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    # 某些网络下 Python 的 SSL 握手会断，重试几次再放弃
+    last = None
+    for _ in range(4):
+        try:
+            with urllib.request.urlopen(r, timeout=60) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            last = e
+            time.sleep(2)
+    raise last
 
 
 def main():

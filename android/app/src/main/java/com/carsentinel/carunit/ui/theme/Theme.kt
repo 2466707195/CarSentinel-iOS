@@ -70,6 +70,9 @@ data class AppExtraColors(
     val info: Color = Color(0xFF2563EB),
     // 同一类漏 `=`：原来是 `val infoContainer: Color(0xFFDDE8FF)`
     val infoContainer: Color = Color(0xFFDDE8FF),
+    // 品牌浅底 + 其上的文字色，给「启动推流」这类次按钮用
+    val brandContainer: Color = Color(0xFFE5E2FF),
+    val onBrandContainer: Color = Color(0xFF1B1464),
     val muted: Color = Color(0xFF8A8AA0),
     val hairline: Color = Color(0xFFEFEDF6),
     val danger: Color = Color(0xFFC62828),

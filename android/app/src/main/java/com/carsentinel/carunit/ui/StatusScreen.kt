@@ -3,6 +3,7 @@ package com.carsentinel.carunit.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,7 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.RoundedRectangleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -117,7 +117,7 @@ fun StatusScreen(
                         // 次按钮样式：浅底 + 品牌色文字，不再是一条实心蓝板
                         Box(
                             Modifier
-                                .clip(RoundedRectangleShape(cornerRadius = 14.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(
                                     if (state.running) extra.warningContainer
                                     else extra.brandContainer
@@ -128,8 +128,7 @@ fun StatusScreen(
                             Text(
                                 if (state.running) "停止推流" else "启动推流",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = if (state.running) extra.warning
-                                else extra.onBrandContainer,
+                                color = if (state.running) extra.warning else extra.onBrandContainer,
                                 maxLines = 1
                             )
                         }
