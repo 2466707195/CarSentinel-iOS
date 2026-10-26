@@ -1,0 +1,33 @@
+# ---- 构建产物（本机不出包，全部由 GitHub Actions 云端构建）----
+build/
+DerivedData/
+*.ipa
+*.apk
+
+# ---- iOS / Xcode ----
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.dSYM
+*.dSYM.zip
+
+# XcodeGen 生成物（.xcodeproj 和 Info.plist 都不入库，CI 里现生成）
+*.xcodeproj/
+ios/CarSentinel/Resources/Info.plist
+
+# ---- Android ----
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.jks
+*.keystore
+
+# ---- 通用 ----
+.DS_Store
+Thumbs.db
+.idea/
+*.iml

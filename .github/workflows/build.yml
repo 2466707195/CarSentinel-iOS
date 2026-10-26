@@ -1,0 +1,121 @@
+# =============================================================================
+# CarSentinel 360 —— GitHub Actions 云端构建
+#
+# 两端各一个 job，互不影响：
+#   · ios      → macOS runner，出【未签名 ipa】（给全能签 / ESign 重签后装机）
+#   · android  → Ubuntu runner，出【未签名 apk】（车机端，直接 adb install 或用
+#                文件管理器安装）
+#
+# ⚠️ iOS job 必须用 Xcode 26+：工程引用了 Aurora UI 的 iOS 18（Tab）和
+#    iOS 26（glassEffect / GlassEffectContainer / ToolbarSpacer）资产。
+#    Xcode 15.4 的 SDK 只到 iOS 17.5，那些符号根本不存在，@available 救不了。
+#    macos-14 镜像默认 Xcode 15.4 → 不够用，所以这里用 macos-15 并挑最新 Xcode。
+#
+# 本机没有 Mac、没有 Android SDK、没有 git —— 全靠这个 workflow 出包。
+# 发布入口：powershell -File scripts\publish-github.ps1 -Token ghp_xxx
+# =============================================================================
+name: Build CarSentinel 360
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  ios:
+    name: iOS 手机端（未签名 ipa）
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 自动挑镜像里最新的 Xcode。本工程需要 iOS 26 SDK，即 Xcode 26+。
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          XCODE="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$XCODE" ]; then
+            echo "::error::没有找到任何 Xcode"
+            exit 1
+          fi
+          echo "selected Xcode: $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i "iphoneos" || true
+
+      # 必须用固定版本：XcodeGen >= 2.42 会生成 Xcode 16 专属的工程格式(77)，
+      # 只有 Xcode 16+ 能开。锁 2.38.0（格式 54，任何 Xcode 都能读）。
+      - name: Install XcodeGen (pinned 2.38.0)
+        run: |
+          bash scripts/install-xcodegen.sh
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+
+      - name: Build unsigned ipa
+        run: bash scripts/build-unsigned-ipa.sh
+
+      # 构建失败时把 xcodebuild 日志也带回来。
+      # 本机浏览器常常连不上 GitHub，出错了只能靠 artifact 通道把日志送到本地。
+      - name: Upload build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-log
+          path: |
+            build/xcodebuild.log
+            build/Info.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: |
+            build/*.ipa
+            build/Info.json
+          if-no-files-found: error
+          retention-days: 30
+
+  android:
+    name: Android 车机端（未签名 apk）
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # GitHub 的 ubuntu-latest 镜像自带完整 Android SDK 和 Gradle，
+      # ANDROID_HOME / ANDROID_SDK_ROOT 已设好。
+      - name: Show toolchain
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<unset>}"
+          java -version 2>&1 | head -1 || true
+          gradle -v 2>&1 | head -5 || true
+
+      - name: Build unsigned apk
+        run: bash scripts/build-android.sh
+
+      # 同上：失败时把 Gradle 日志带回来
+      - name: Upload build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-log
+          path: |
+            build/gradle.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload apk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unsigned-apk
+          path: |
+            build/*.apk
+          if-no-files-found: error
+          retention-days: 30

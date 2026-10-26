@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 盾形底：外轮廓 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,26 L76,34 L76,56 C76,70 66,80 54,86 C42,80 32,70 32,56 L32,34 Z" />
+    <!-- 盾形内描边 -->
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M54,32 L70,38 L70,55.5 C70,66.5 62.5,74.5 54,79.5 C45.5,74.5 38,66.5 38,55.5 L38,38 Z" />
+    <!-- 镜头圆 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,44 m-11,0 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0" />
+    <path
+        android:fillColor="#0F9D9D"
+        android:pathData="M54,48 m-6,0 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0" />
+</vector>

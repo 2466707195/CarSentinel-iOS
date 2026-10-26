@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      用 com.google.android.material 的 Theme.Material3.Light.NoActionBar，
+      而不是 android:Theme.Material3.*（后者 API 29 才有，minSdk 28 会崩）。
+      Compose 的 setContent 不要求 AppCompatActivity，这里只为拿到「无系统 ActionBar」的底。
+    -->
+    <style name="Theme.CarSentinel" parent="Theme.Material3.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/cs360_canvas</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

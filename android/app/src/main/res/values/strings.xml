@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">车载哨兵</string>
+    <string name="service_name">哨兵推流</string>
+    <string name="notification_channel_name">哨兵推流</string>
+    <string name="notification_channel_desc">CarSentinel 360 视频推流常驻通知</string>
+    <string name="notif_title">车载哨兵 · 推流中</string>
+    <string name="notif_starting">正在启动…</string>
+    <string name="notif_stop">停止</string>
+</resources>

@@ -1,0 +1,58 @@
+# =============================================================================
+# iOS 云端构建 —— Codemagic（备用通道）
+#
+# 主通道是 .github/workflows/build.yml；这个文件是「GitHub Actions 抽风」时的退路。
+# 只构建 iOS 手机端；Android 车机端没有对应的 Codemagic 配置（Actions 已覆盖）。
+#
+# 同样不需要 Mac：Codemagic 用托管的 macOS 机器编译，产出未签名 ipa。
+#
+# 用法：
+#   1. 把工程目录的【内容】推到 GitHub 仓库
+#   2. Codemagic 后台 Add app → 选 GitHub → 授权 → 选仓库
+#   3. 首次构建会自动读本文件；也可以在 Start build 里手动触发
+#   4. 构建完成后在 Artifacts 里下载 *.ipa
+#   5. 把 ipa 传到「全能签」重签 → 装到手机
+#
+# 免费额度：每月 500 分钟 macOS 构建时间，一次构建约 3~6 分钟。
+#
+# ⚠️ 本工程引用 Aurora UI 的 iOS 18（Tab）/ iOS 26（glassEffect 等）资产，
+#    必须用 Xcode 26+ 编译。Codemagic 默认镜像可能是旧 Xcode，
+#    所以下面第一步显式挑最新的。
+# =============================================================================
+name: ios-unsigned-ipa
+
+workflows:
+  build_unsigned_ipa:
+    name: Build unsigned ipa
+    max_build_duration: 60
+
+    scripts:
+      # 挑镜像里最新的 Xcode：本工程需要 iOS 26 SDK，
+      # Xcode 15.4 的 SDK 只到 iOS 17.5，glassEffect / Tab 这些符号根本不存在
+      - name: Select newest Xcode
+        script: |
+          set -euo pipefail
+          XCODE="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$XCODE" ]; then
+            echo "没有找到任何 Xcode"
+            exit 1
+          fi
+          echo "selected Xcode: $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      # 必须用固定版本，理由同 GitHub Actions 那条
+      - name: Install XcodeGen (pinned 2.38.0)
+        script: |
+          bash scripts/install-xcodegen.sh
+          export PATH="/usr/local/bin:$PATH"
+
+      - name: Build unsigned ipa
+        script: |
+          export PATH="/usr/local/bin:$PATH"
+          bash scripts/build-unsigned-ipa.sh
+
+    artifacts:
+      - path: build/*.ipa
+      - path: build/Info.json
+
