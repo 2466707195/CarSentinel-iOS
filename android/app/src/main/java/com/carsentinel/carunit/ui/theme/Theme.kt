@@ -63,9 +63,13 @@ data class AppExtraColors(
     val success: Color = Color(0xFF11875A),
     val successContainer: Color = Color(0xFFD8F5E8),
     val warning: Color = Color(0xFFB26A00),
-    val warningContainer: Color(0xFFFFEDCB),
+    // 注意：这一行原来是 `val warningContainer: Color(0xFFFFEDCB)`，少了个 `=`，
+    // 是 Aurora UI 资产里带过来的语法错误。它会让整个 data class 解析失败，
+    // 于是 AppTheme.colors.* 全部 unresolved —— 一个等号炸出 14 个错。
+    val warningContainer: Color = Color(0xFFFFEDCB),
     val info: Color = Color(0xFF2563EB),
-    val infoContainer: Color(0xFFDDE8FF),
+    // 同一类漏 `=`：原来是 `val infoContainer: Color(0xFFDDE8FF)`
+    val infoContainer: Color = Color(0xFFDDE8FF),
     val muted: Color = Color(0xFF8A8AA0),
     val hairline: Color = Color(0xFFEFEDF6),
     val danger: Color = Color(0xFFC62828),

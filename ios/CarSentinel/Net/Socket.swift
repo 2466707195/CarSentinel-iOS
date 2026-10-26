@@ -3,6 +3,9 @@ import Foundation
 // === CarSentinel 360 · 原生 socket 封装 ===
 // 不用 Network.framework：读「精确 N 字节」这种需求用 recv 循环最直白，
 // 而且不需要 run loop，随便丢在哪个 DispatchQueue 上都能跑。
+//
+// ⚠️ 本类自己有个 `close()` 方法，所以调 C 的 `Darwin.close(fd)` 必须写 `Darwin.close(fd)`，
+//    否则编译器认为你在调实例方法。
 
 enum SocketError: Error, CustomStringConvertible {
     case socketFailed
@@ -54,13 +57,13 @@ final class TcpConnection {
         }
         guard code == 0 else {
             let e = errno
-            close(fd)
+            Darwin.close(fd)
             fd = -1
             throw SocketError.connectFailed("connect \(host):\(port) 失败 (errno \(e))")
         }
     }
 
-    deinit { if fd >= 0 { close(fd); fd = -1 } }
+    deinit { if fd >= 0 { Darwin.close(fd); fd = -1 } }
 
     /// 把 host:port 解析成 IPv4 的 sockaddr_in
     static func resolveIPv4(_ host: String, port: Int) throws -> sockaddr_in {
@@ -147,7 +150,7 @@ final class TcpConnection {
     }
 
     func close() {
-        if fd >= 0 { close(fd); fd = -1 }
+        if fd >= 0 { Darwin.close(fd); fd = -1 }
     }
 }
 
@@ -187,7 +190,7 @@ final class UdpSocket {
             }
             guard code == 0 else {
                 let e = errno
-                close(fd); fd = -1
+                Darwin.close(fd); fd = -1
                 throw SocketError.bindFailed("bind :\(bindPort) 失败 (errno \(e))")
             }
         }
@@ -202,13 +205,14 @@ final class UdpSocket {
         }
     }
 
-    deinit { if fd >= 0 { close(fd); fd = -1 } }
+    deinit { if fd >= 0 { Darwin.close(fd); fd = -1 } }
 
     func send(_ data: Data, to host: String, port: Int) throws {
         let addr = try TcpConnection.resolveIPv4(host, port: port)
-        let code = data.withUnsafeBytes { raw -> Int32 in
+        // sendto 返回 Int（ssize_t），不是 Int32
+        let code = data.withUnsafeBytes { raw -> Int in
             guard let base = raw.baseAddress else { return -1 }
-            return withUnsafePointer(to: addr) { p -> Int32 in
+            return withUnsafePointer(to: addr) { p -> Int in
                 sendto(fd, base, data.count, 0,
                        UnsafeRawPointer(p).assumingMemoryBound(to: sockaddr.self),
                        socklen_t(MemoryLayout<sockaddr_in>.size))
@@ -245,6 +249,6 @@ final class UdpSocket {
     }
 
     func close() {
-        if fd >= 0 { close(fd); fd = -1 }
+        if fd >= 0 { Darwin.close(fd); fd = -1 }
     }
 }

@@ -237,7 +237,8 @@ class ControlRegistry(private val logs: LogBus) : LogBus.Listener {
         )
     }
 
-    private fun broadcast(line: String) {
+    // internal：StreamServer 的 ControlSession 要调它广播摄像头列表变化
+    internal fun broadcast(line: String) {
         for (s in sessions) {
             try {
                 s.pushRaw(line)

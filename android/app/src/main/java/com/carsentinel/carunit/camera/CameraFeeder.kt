@@ -28,7 +28,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 不支持时退到 StreamConfigurationMap 里最接近的支持尺寸。
  */
 class CameraFeeder(
-    private val cameraId: String,
+    // internal：CameraHub 要按 cameraId 反查 feeder，private 会拒绝访问
+    internal val cameraId: String,
     private val manager: CameraManager,
     private val targetW: Int = 1280,
     private val targetH: Int = 720,
@@ -199,10 +200,12 @@ class CameraFeeder(
                 }
             }
 
-            // minSdk 28 >= P，SessionConfiguration 一定可用；不需要留旧 API 分支
+            // minSdk 28 >= P，SessionConfiguration 一定可用；不需要留旧 API 分支。
+            // SESSION_TYPE_REGULAR 在 Kotlin 里解析不到（Java 静态字段的可见性在
+            // 不同 SDK 上行为不一致），直接用文档值 0，语义等价且不会因 SDK 变动而挂。
             val out = OutputConfiguration(surface)
             val cfg = SessionConfiguration(
-                SessionConfiguration.SESSION_TYPE_REGULAR,
+                0,   // SessionConfiguration.SESSION_TYPE_REGULAR
                 listOf(out),
                 Executor { r -> handler?.post(r) ?: Thread(r).start() },
                 cb

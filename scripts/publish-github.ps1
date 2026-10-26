@@ -234,12 +234,16 @@ for ($i = 1; $i -le 200; $i++) {
         else {
             Write-Host "  [!!] build failed: $($run.conclusion)" -ForegroundColor Red
             Write-Host "  logs: $($run.html_url)" -ForegroundColor Yellow
-            exit 2
+            # 注意：这里不能 exit。失败时更要往下走，把构建日志 artifact 下回来
+            # （浏览器常常连不上 GitHub，日志是唯一能把编译错误带到本机的通道）。
+            # 下载完在末尾统一报错退出。
+            $BuildFailed = $true
         }
         break
     }
     Start-Sleep -Seconds 10
 }
+if (-not $BuildFailed -and -not $run) { throw "could not find the workflow run" }
 
 # --------------------------------------------------------------------------
 # 6. 下载 artifact（一个 workflow 出两端产物，全部取回来）
@@ -298,7 +302,23 @@ foreach ($artifact in $artifacts.artifacts) {
 if (-not $ipaPath -and -not $apkPath) {
     $logHint = ""
     if (Test-Path -LiteralPath (Join-Path $Root "build\logs")) {
-        $logHint = " 构建失败，日志在 build\logs\ 下（xcodebuild.log / gradle.log）"
+        $logHint = "`n构建日志已下到 build\logs\（xcodebuild.log / gradle.log），编译错误在里面。"
+    }
+    if ($BuildFailed) {
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Red
+        Write-Host " BUILD FAILED" -ForegroundColor Red
+        Write-Host " repo : $($Repo.html_url)" -ForegroundColor Red
+        Write-Host " run  : $($run.html_url)" -ForegroundColor Red
+        if (Test-Path -LiteralPath (Join-Path $Root "build\logs")) {
+            Write-Host " logs : $(Join-Path $Root 'build\logs')" -ForegroundColor Yellow
+            Get-ChildItem -LiteralPath (Join-Path $Root "build\logs") -Recurse -File | ForEach-Object {
+                Write-Host ("        {0}  ({1} KB)" -f $_.FullName.Substring($Root.Length + 1), [math]::Round($_.Length / 1KB, 1)) -ForegroundColor Yellow
+            }
+        }
+        Write-Host " 把上面日志的末尾几十行贴出来，就能定位问题。" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Red
+        exit 2
     }
     throw "no .ipa / .apk inside the artifacts.$logHint"
 }

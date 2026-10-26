@@ -15,15 +15,8 @@ import AVFoundation
 //   2. 送给 VideoToolbox 的 sample data 用 **AVCC 格式**（每个 NAL 前加 4 字节大端长度），
 //      这是文档规定的格式；Annex-B 起始码在这里先剥掉再换成长度前缀。
 
-private func csDecompressionOutputCallback(    _ refCon: UnsafeMutableRawPointer?,
-    _ sourceFrameRefCon: UnsafeMutableRawPointer?,
-    _ status: OSStatus,
-    _ infoFlags: VTDecodeInfoFlags,
-    _ imageBuffer: CVImageBuffer?,
-    _ pts: CMTime,
-    _ duration: CMTime,
-    _ dts: CMTime
-) {
+private let csDecompressionOutputCallback: VTDecompressionOutputCallback = {
+    refCon, sourceFrameRefCon, status, infoFlags, imageBuffer, pts, duration, dts in
     guard status == noErr, let imageBuffer, let refCon else { return }
     let decoder = Unmanaged<H264Decoder>.fromOpaque(refCon).takeUnretainedValue()
     decoder.emitDecodedFrame(imageBuffer, presentationTime: pts)
@@ -132,7 +125,7 @@ final class H264Decoder {
         for nal in nals {
             var lenBE = UInt32(nal.count).bigEndian
             avcc.append(Data(bytes: &lenBE, count: 4))
-            avcc.append(nal)
+            avcc.append(contentsOf: nal)
         }
         guard !avcc.isEmpty else { return }
 
@@ -151,7 +144,7 @@ final class H264Decoder {
                 blockAllocator: kCFAllocatorNull,
                 customBlockSource: nil,
                 offsetToData: 0,
-                length: bytes.count,
+                dataLength: bytes.count,
                 flags: 0,
                 blockBufferOut: &blockBuffer
             )
@@ -174,9 +167,9 @@ final class H264Decoder {
             formatDescription: prep.formatDescription,
             sampleCount: 1,
             sampleTimingEntryCount: 1,
-            sampleTimingEntryArray: &timing,
+            sampleTimingArray: &timing,
             sampleSizeEntryCount: 0,
-            sampleSizeEntryArray: nil,
+            sampleSizeArray: nil,
             sampleBufferOut: &sampleBuffer
         )
         guard sbStatus == noErr, let sb = sampleBuffer else { return }
@@ -184,7 +177,7 @@ final class H264Decoder {
         var flags = VTDecodeInfoFlags()
         let st = VTDecompressionSessionDecodeFrame(
             prep.session, sampleBuffer: sb,
-            decodeFlags: [._EnableAsynchronousDecompression],
+            flags: [._EnableAsynchronousDecompression],
             frameRefcon: nil, infoFlagsOut: &flags)
         if st != noErr {
             // 单帧失败不致命，等下一个关键帧
@@ -201,6 +194,15 @@ final class H264Decoder {
         // 而 Invalidate 会等在途帧、回调再进这里 —— 取锁就是锁倒置死锁。
         // timescale 直接从送进来的 CMTime 上取，它本来就带着正确的 timescale。
         let ts = presentationTime.timescale
+
+        // formatDescription 描述的是【解码后的像素缓冲】，不是 H.264 流，
+        // 所以要用 CMVideoFormatDescriptionCreateForImageBuffer 现场造一个。
+        var imgFmt: CMVideoFormatDescription?
+        let fmtStatus = CMVideoFormatDescriptionCreateForImageBuffer(
+            allocator: kCFAllocatorDefault, imageBuffer: imageBuffer,
+            formatDescriptionOut: &imgFmt)
+        guard fmtStatus == noErr, let imgFmt else { return }
+
         var timing = CMSampleTimingInfo(
             duration: CMTime(value: 1, timescale: ts),
             presentationTimeStamp: presentationTime,
@@ -210,13 +212,8 @@ final class H264Decoder {
         let st = CMSampleBufferCreateReadyWithImageBuffer(
             allocator: kCFAllocatorDefault,
             imageBuffer: imageBuffer,
-            dataReady: true,
-            makeDataReadyCallback: nil,
-            refcon: nil,
-            formatDescription: nil,
+            formatDescription: imgFmt,
             sampleTiming: &timing,
-            sampleCount: 1,
-            sampleSize: 0,
             sampleBufferOut: &out
         )
         guard st == noErr, let out else { return }
@@ -232,6 +229,7 @@ final class H264Decoder {
 
         // 注意：VTDecompressionOutputCallback 是 C 函数指针类型别名，不是结构体。
         // 真正要构造的是 VTDecompressionOutputCallbackRecord。
+        // csDecompressionOutputCallback 本身就是这个类型，直接赋值即可。
         var callback = VTDecompressionOutputCallbackRecord()
         callback.decompressionOutputCallback = csDecompressionOutputCallback
         callback.decompressionOutputRefCon = Unmanaged.passUnretained(self).toOpaque()
@@ -243,7 +241,6 @@ final class H264Decoder {
             decoderSpecification: nil,
             imageBufferAttributes: attrs,
             outputCallback: &callback,
-            outputCallbackRefCon: nil,
             decompressionSessionOut: &newSession
         )
         guard status == noErr, let newSession else { return false }
@@ -301,20 +298,17 @@ final class H264Decoder {
         var fmt: CMVideoFormatDescription?
 
         // ⚠️ 本机没有 Xcode，下面这个调用的指针数组可选性没法验证。
-        //    C 原型是 `const uint8_t * const parameterSetPointers[]`，
-        //    Swift 通常导入成 UnsafePointer<UnsafePointer<UInt8>?>，所以这里写成可选元素。
-        //    如果 CI 报：
-        //        cannot convert value of type '[UnsafePointer<UInt8>?]' to expected
-        //        argument type 'UnsafePointer<UnsafePointer<UInt8>>'
-        //    就把下一行的 `?` 去掉，改成：
-        //        let pointers: [UnsafePointer<UInt8>] = [sp, pp]
-        //    两种写法互斥，只可能对一种。
+        //    C 原型是 `const uint8_t * const parameterSetPointers[]`。
+        //    CI 实测（Xcode 26.3 / iPhoneOS 26.2 SDK）要的是【非可选】元素：
+        //        cannot convert value of type 'UnsafePointer<UnsafePointer<UInt8>?>'
+        //        to expected argument type 'UnsafePointer<UnsafePointer<UInt8>>'
+        //    所以这里用 [UnsafePointer<UInt8>]（不带 ?）。
         let status: OSStatus = sps.withUnsafeBufferPointer { spsBuf in
             pps.withUnsafeBufferPointer { ppsBuf in
                 guard let sp = spsBuf.baseAddress, let pp = ppsBuf.baseAddress else {
                     return kCMFormatDescriptionBridgeError_InvalidParameter
                 }
-                let pointers: [UnsafePointer<UInt8>?] = [sp, pp]
+                let pointers: [UnsafePointer<UInt8>] = [sp, pp]
                 let sizes: [Int] = [sps.count, pps.count]
                 return CMVideoFormatDescriptionCreateFromH264ParameterSets(
                     allocator: kCFAllocatorDefault,
